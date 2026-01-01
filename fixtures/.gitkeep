@@ -1,0 +1,7 @@
+# This directory is reserved for pre-generated test fixtures.
+# 
+# By default, users generate fixtures on-demand via:
+#   ./tazima.sh ./fixtures
+#
+# Pre-generated fixtures may be added in future releases
+# for users without bash/git available in their environment.

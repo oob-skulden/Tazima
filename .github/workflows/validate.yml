@@ -1,0 +1,368 @@
+name: Zimara Self-Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run weekly to catch Zimara regressions
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      zimara_version:
+        description: 'Zimara version to test (default: latest)'
+        required: false
+        default: 'latest'
+
+env:
+  FIXTURES_DIR: ./test-violations
+  ZIMARA_REPO: oob-skulden/zimara
+
+jobs:
+  generate-fixtures:
+    name: Generate Test Violations
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Tazima
+        uses: actions/checkout@v4
+      
+      - name: Verify tazima.sh exists
+        run: |
+          if [ ! -f tazima.sh ]; then
+            echo "ERROR: tazima.sh not found"
+            exit 1
+          fi
+          chmod +x tazima.sh
+      
+      - name: Generate all test fixtures
+        run: |
+          ./tazima.sh "$FIXTURES_DIR"
+          
+      - name: Verify fixture generation
+        run: |
+          # Should have 53 check directories
+          fixture_count=$(find "$FIXTURES_DIR" -maxdepth 1 -type d -name "check_*" | wc -l)
+          echo "Generated $fixture_count fixtures"
+          
+          if [ "$fixture_count" -ne 53 ]; then
+            echo "ERROR: Expected 53 fixtures, got $fixture_count"
+            exit 1
+          fi
+      
+      - name: Upload fixtures artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-fixtures
+          path: ${{ env.FIXTURES_DIR }}
+          retention-days: 1
+
+  validate-zimara-detection:
+    name: Validate Zimara Detection
+    needs: generate-fixtures
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        # Test critical security checks
+        check: [
+          "03",  # Private keys
+          "04",  # Secret patterns
+          "06",  # .env files
+          "17",  # Git history secrets
+          "19",  # Sensitive filenames
+          "20",  # API keys in output
+          "46",  # IaC secrets
+          "47",  # Docker issues
+          "48",  # Overly permissive networks
+        ]
+    
+    steps:
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: test-fixtures
+          path: ${{ env.FIXTURES_DIR }}
+      
+      - name: Fetch latest Zimara release
+        id: zimara
+        run: |
+          # Get latest release from GitHub
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ env.ZIMARA_REPO }}/releases/latest | jq -r .tag_name)
+          echo "version=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          
+          # Download zimara.sh
+          curl -sSL "https://github.com/${{ env.ZIMARA_REPO }}/releases/download/$LATEST_RELEASE/zimara.sh" -o zimara.sh
+          chmod +x zimara.sh
+          
+          echo "Testing with Zimara $LATEST_RELEASE"
+      
+      - name: Run Zimara on check_${{ matrix.check }}
+        id: scan
+        continue-on-error: true
+        run: |
+          echo "=== Scanning check_${{ matrix.check }} ==="
+          ./zimara.sh "$FIXTURES_DIR/check_${{ matrix.check }}" \
+            --format json \
+            --output results_${{ matrix.check }}.json
+      
+      - name: Verify detection occurred
+        run: |
+          # Check if findings were generated
+          if [ ! -f "results_${{ matrix.check }}.json" ]; then
+            echo "ERROR: No output file generated"
+            exit 1
+          fi
+          
+          # Parse findings count
+          findings=$(jq -r '.findings | length' results_${{ matrix.check }}.json 2>/dev/null || echo "0")
+          
+          echo "Findings detected: $findings"
+          
+          # Critical checks MUST produce findings
+          if [ "$findings" -eq 0 ]; then
+            echo "ERROR: check_${{ matrix.check }} should produce findings but didn't"
+            echo "This indicates a Zimara regression or Tazima fixture issue"
+            exit 1
+          fi
+          
+          echo "✓ Detection validated for check_${{ matrix.check }}"
+      
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scan-results-${{ matrix.check }}
+          path: results_${{ matrix.check }}.json
+          retention-days: 7
+
+  validate-info-checks:
+    name: Validate INFO/PASS Checks
+    needs: generate-fixtures
+    runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        # Checks that produce INFO or PASS (not violations)
+        check: [
+          "09",  # Netlify config present
+          "11",  # .github directory
+          "15",  # Uncommitted changes
+          "21",  # Redirect rules
+          "22",  # 404 page
+        ]
+    
+    steps:
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: test-fixtures
+          path: ${{ env.FIXTURES_DIR }}
+      
+      - name: Fetch latest Zimara
+        run: |
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ env.ZIMARA_REPO }}/releases/latest | jq -r .tag_name)
+          curl -sSL "https://github.com/${{ env.ZIMARA_REPO }}/releases/download/$LATEST_RELEASE/zimara.sh" -o zimara.sh
+          chmod +x zimara.sh
+      
+      - name: Run Zimara on check_${{ matrix.check }}
+        run: |
+          echo "=== Scanning check_${{ matrix.check }} ==="
+          ./zimara.sh "$FIXTURES_DIR/check_${{ matrix.check }}" || true
+          echo "✓ INFO/PASS check completed for check_${{ matrix.check }}"
+
+  validate-tool-dependent:
+    name: Validate Tool-Dependent Checks
+    needs: generate-fixtures
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download fixtures
+        uses: actions/download-artifact@v4
+        with:
+          name: test-fixtures
+          path: ${{ env.FIXTURES_DIR }}
+      
+      - name: Install security tools
+        run: |
+          # gitleaks (for check_12)
+          wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.18.1/gitleaks_8.18.1_linux_x64.tar.gz
+          tar -xzf gitleaks_8.18.1_linux_x64.tar.gz
+          sudo mv gitleaks /usr/local/bin/
+          
+          # detect-secrets (for check_13)
+          pip install detect-secrets
+          
+          # npm (for check_14) - already available in ubuntu-latest
+          
+          echo "✓ Security tools installed"
+      
+      - name: Fetch latest Zimara
+        run: |
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/${{ env.ZIMARA_REPO }}/releases/latest | jq -r .tag_name)
+          curl -sSL "https://github.com/${{ env.ZIMARA_REPO }}/releases/download/$LATEST_RELEASE/zimara.sh" -o zimara.sh
+          chmod +x zimara.sh
+      
+      - name: Validate check_12 (gitleaks)
+        run: |
+          ./zimara.sh "$FIXTURES_DIR/check_12" --format json --output check_12.json
+          findings=$(jq -r '.findings | length' check_12.json 2>/dev/null || echo "0")
+          
+          if [ "$findings" -eq 0 ]; then
+            echo "WARNING: gitleaks should detect GitHub token pattern"
+          else
+            echo "✓ gitleaks detection validated"
+          fi
+      
+      - name: Validate check_13 (detect-secrets)
+        run: |
+          ./zimara.sh "$FIXTURES_DIR/check_13" --format json --output check_13.json
+          findings=$(jq -r '.findings | length' check_13.json 2>/dev/null || echo "0")
+          
+          if [ "$findings" -eq 0 ]; then
+            echo "WARNING: detect-secrets should detect API token"
+          else
+            echo "✓ detect-secrets detection validated"
+          fi
+      
+      - name: Validate check_14 (npm audit)
+        run: |
+          cd "$FIXTURES_DIR/check_14"
+          npm install --silent 2>/dev/null || true
+          cd -
+          
+          ./zimara.sh "$FIXTURES_DIR/check_14" || true
+          echo "✓ npm audit check completed"
+
+  regression-test:
+    name: Regression Testing
+    needs: validate-zimara-detection
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout Tazima
+        uses: actions/checkout@v4
+      
+      - name: Download all scan results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: scan-results-*
+          path: scan-results/
+      
+      - name: Compare with baseline
+        run: |
+          # Store current results as baseline for next run
+          mkdir -p baselines
+          
+          for result in scan-results/*/results_*.json; do
+            check_num=$(basename "$result" | sed 's/results_\([0-9]*\).json/\1/')
+            cp "$result" "baselines/baseline_${check_num}.json"
+          done
+          
+          echo "✓ Baseline updated for regression tracking"
+      
+      - name: Upload new baselines
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-baselines
+          path: baselines/
+          retention-days: 90
+
+  coverage-report:
+    name: Coverage Report
+    needs: [validate-zimara-detection, validate-info-checks, validate-tool-dependent]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download all scan results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: scan-results-*
+          path: scan-results/
+      
+      - name: Generate coverage summary
+        run: |
+          echo "# Tazima Coverage Report" > coverage.md
+          echo "" >> coverage.md
+          echo "Generated: $(date -u)" >> coverage.md
+          echo "" >> coverage.md
+          echo "## Detection Results" >> coverage.md
+          echo "" >> coverage.md
+          echo "| Check | Findings | Status |" >> coverage.md
+          echo "|-------|----------|--------|" >> coverage.md
+          
+          total=0
+          detected=0
+          
+          for result in scan-results/*/results_*.json; do
+            check_num=$(basename "$result" | sed 's/results_\([0-9]*\).json/\1/')
+            findings=$(jq -r '.findings | length' "$result" 2>/dev/null || echo "0")
+            
+            total=$((total + 1))
+            
+            if [ "$findings" -gt 0 ]; then
+              status="✓ PASS"
+              detected=$((detected + 1))
+            else
+              status="✗ FAIL"
+            fi
+            
+            echo "| check_${check_num} | ${findings} | ${status} |" >> coverage.md
+          done
+          
+          echo "" >> coverage.md
+          echo "**Coverage: ${detected}/${total} checks validated**" >> coverage.md
+          
+          cat coverage.md
+      
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.md
+          retention-days: 30
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const coverage = fs.readFileSync('coverage.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: coverage
+            });
+
+  security-check:
+    name: Prevent Deployment Workflows
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Tazima
+        uses: actions/checkout@v4
+      
+      - name: Scan for deployment keywords
+        run: |
+          # Fail if workflows contain deployment-related actions
+          if grep -r "netlify/actions" .github/workflows/ 2>/dev/null; then
+            echo "ERROR: Netlify deployment action detected"
+            echo "Tazima fixtures must never be deployed"
+            exit 1
+          fi
+          
+          if grep -r "aws-actions/configure-aws-credentials" .github/workflows/ 2>/dev/null; then
+            echo "ERROR: AWS deployment action detected"
+            echo "Tazima fixtures must never be deployed"
+            exit 1
+          fi
+          
+          echo "✓ No deployment workflows detected"

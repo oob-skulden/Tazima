@@ -1,0 +1,53 @@
+# .gitattributes for Tazima
+#
+# Published by Oob Skulden™
+# Companion test suite for Zimara security scanner
+#
+# This repository contains INTENTIONAL security violations for testing.
+# The .gitattributes file prevents false positives in GitHub's security
+# scanning and correctly categorizes test fixtures as generated content.
+#
+# All "secrets" in this repository are fake and used only for validation.
+
+# Prevents GitHub secrets scanning false positives on intentional test violations
+
+# Mark all intentional violations as generated/test content
+*.key           linguist-generated=true linguist-documentation=true
+*.pem           linguist-generated=true linguist-documentation=true
+*.env           linguist-generated=true linguist-documentation=true
+*.env.*         linguist-generated=true linguist-documentation=true
+.env            linguist-generated=true linguist-documentation=true
+id_rsa          linguist-generated=true linguist-documentation=true
+id_dsa          linguist-generated=true linguist-documentation=true
+*.bak           linguist-generated=true linguist-documentation=true
+*.log           linguist-generated=true linguist-documentation=true
+secret.txt      linguist-generated=true linguist-documentation=true
+config.yml      linguist-generated=true linguist-documentation=true
+
+# IaC fixtures contain intentional misconfigurations
+*.tf            linguist-generated=true linguist-documentation=true
+*.tfstate       linguist-generated=true linguist-documentation=true
+Dockerfile      linguist-generated=true linguist-documentation=true
+
+# CI/CD fixtures contain intentional security issues
+.github/workflows/*.yml linguist-generated=true linguist-documentation=true
+
+# JavaScript/JSON fixtures may contain hardcoded secrets
+app.js          linguist-generated=true linguist-documentation=true
+package.json    linguist-generated=true linguist-documentation=true
+
+# Python fixtures contain test secrets
+app.py          linguist-generated=true linguist-documentation=true
+config.py       linguist-generated=true linguist-documentation=true
+
+# HTML fixtures contain intentional mixed content
+*.html          linguist-generated=true linguist-documentation=true
+
+# Netlify configs contain intentional header gaps
+netlify.toml    linguist-generated=true linguist-documentation=true
+
+# Documentation is markdown
+*.md            linguist-documentation=true
+
+# Shell script is the main generator
+tazima.sh       linguist-language=Shell
