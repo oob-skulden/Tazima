@@ -1,38 +1,45 @@
 # ============================================
-# Hugo Build Artifacts
+# Tazima Test Violations Repository
+# Published by Oob Skulden™
 # ============================================
-# NOTE: /public/ is intentionally ignored because Netlify builds from source
-/public/
-/resources/
-/resources/_gen/
-/.hugo_build.lock
+# This repository contains intentional security violations for testing.
+# The .gitignore prevents test fixture pollution and build artifacts.
 
 # ============================================
-# Local Operational / Server Scripts
+# Generated Test Fixtures
 # ============================================
-# Host-specific startup or service scripts (DO NOT COMMIT)
-start-server.sh
-*-server.sh
-local-*.sh
+# Users generate fixtures on-demand via ./tazima.sh
+# Do not commit generated test violations
+test-violations/
+zimara-violations/
+violations/
+fixtures/check_*/
+
+# ============================================
+# Test Results & Logs
+# ============================================
+*.json
+*.sarif
+*.log
+results_*.json
+scan-results/
+baselines/
+
+# ============================================
+# Zimara Binary (Users Download Separately)
+# ============================================
+zimara.sh
+zimara_*.sh
 
 # ============================================
 # Backup Files
 # ============================================
 *.backup
-*.backup-*
 *.bak
 *.old
 *.tmp
 *~
 *.orig
-
-# ============================================
-# Archives
-# ============================================
-*.tar.gz
-*.zip
-*.rar
-*.7z
 
 # ============================================
 # Editor / IDE Files
@@ -44,7 +51,6 @@ local-*.sh
 # JetBrains
 .idea/
 *.iml
-*.iws
 
 # Vim
 *.swp
@@ -54,60 +60,33 @@ local-*.sh
 \#*\#
 .\#*
 
-# Sublime Text
-*.sublime-project
-*.sublime-workspace
-
 # ============================================
 # OS Files
 # ============================================
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
 ._*
 
 # Windows
 Thumbs.db
-ehthumbs.db
 Desktop.ini
 
 # Linux
 .directory
-.Trash-*
 
 # ============================================
 # Environment & Secrets
 # ============================================
+# Even though this is a test repo, don't commit real credentials
 .env
 .env.local
-.env.*.local
 *.key
 *.pem
 secrets/
 credentials/
 
 # ============================================
-# Logs
+# CI/CD Artifacts
 # ============================================
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# ============================================
-# Dependencies
-# ============================================
-node_modules/
-
-# ============================================
-# Temporary Hugo / Netlify Files
-# ============================================
-hugo_stats.json
-hugo.development.toml
-
-# Hugo cache (newer Hugo versions / pipes)
-.hugo_cache/
-
-# Netlify local dev artifacts (only if using `netlify dev`)
-.netlify/
+coverage.md
+.github/artifacts/
